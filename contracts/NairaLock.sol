@@ -34,7 +34,9 @@ contract NairaLock is Ownable, ReentrancyGuard {
     IERC20 public immutable usdc;
     address public treasury;
     uint256 public ngnPerUsd;
-    uint256 public interestRateBps;
+
+    /// @notice Per-term interest rates in basis points. Index matches termChoice (0=3mo, 1=6mo, 2=1yr).
+    uint256[3] public termInterestRateBps;
 
     uint256 public constant LTV_BPS = 5000;
     uint256 public constant GRACE_PERIOD = 14 days;
@@ -55,10 +57,10 @@ contract NairaLock is Ownable, ReentrancyGuard {
     event LoanLiquidated(address indexed borrower, uint256 deductedUsdc, uint256 returnedUsdc);
     event CollateralToppedUp(address indexed borrower, uint256 addedUsdc);
     event NgnRateUpdated(uint256 newRate);
-    event InterestRateUpdated(uint256 newBps);
+    event TermInterestRateUpdated(uint8 indexed termChoice, uint256 newBps);
     event TreasuryUpdated(address newTreasury);
 
-    constructor(address _usdc, address _treasury, uint256 _ngnPerUsd, uint256 _interestRateBps, address initialOwner)
+    constructor(address _usdc, address _treasury, uint256 _ngnPerUsd, address initialOwner)
         Ownable(initialOwner)
     {
         if (_usdc == address(0) || _treasury == address(0) || initialOwner == address(0)) revert ZeroAddress();
@@ -67,7 +69,11 @@ contract NairaLock is Ownable, ReentrancyGuard {
         usdc = IERC20(_usdc);
         treasury = _treasury;
         ngnPerUsd = _ngnPerUsd;
-        interestRateBps = _interestRateBps;
+
+        // Default per-term rates: 10% (3mo), 15% (6mo), 20% (1yr)
+        termInterestRateBps[0] = 1000;
+        termInterestRateBps[1] = 1500;
+        termInterestRateBps[2] = 2000;
 
         TERM_DURATIONS[0] = 90 days;
         TERM_DURATIONS[1] = 180 days;
@@ -84,8 +90,8 @@ contract NairaLock is Ownable, ReentrancyGuard {
         uint256 maxNgn = (usdcAmount * ngnPerUsd) / (2 * 1e6);
         if (ngnRequested > maxNgn) revert ExceedsMaxBorrow(ngnRequested, maxNgn);
 
-        // Interest is charged on the borrowed amount (converted to USDC), not the deposit
-        uint256 interestUsdc = (ngnRequested * interestRateBps * 1e6) / (ngnPerUsd * 10_000);
+        // Interest is charged on the borrowed amount (converted to USDC), using the selected term's rate
+        uint256 interestUsdc = (ngnRequested * termInterestRateBps[termChoice] * 1e6) / (ngnPerUsd * 10_000);
         if (interestUsdc >= usdcAmount) revert InsufficientCollateralForInterest(usdcAmount, interestUsdc);
 
         uint256 collateralLocked = usdcAmount - interestUsdc;
@@ -127,7 +133,8 @@ contract NairaLock is Ownable, ReentrancyGuard {
 
         if ((loan.collateralUsdc * ngnPerUsd) <= (loan.ngnDebt * 1e6)) revert RefinanceNotEligible();
 
-        uint256 interestUsdc = (loan.ngnDebt * interestRateBps * 1e6) / (ngnPerUsd * 10_000);
+        // Refinance uses the new term's current rate
+        uint256 interestUsdc = (loan.ngnDebt * termInterestRateBps[newTermChoice] * 1e6) / (ngnPerUsd * 10_000);
         if (loan.collateralUsdc <= interestUsdc) {
             revert InsufficientCollateralForInterest(loan.collateralUsdc, interestUsdc);
         }
@@ -212,12 +219,6 @@ contract NairaLock is Ownable, ReentrancyGuard {
         emit NgnRateUpdated(_ngnPerUsd);
     }
 
-    function setInterestRateBps(uint256 _bps) external onlyOwner nonReentrant {
-        require(_bps < 10_000, "Interest too high");
-        interestRateBps = _bps;
-        emit InterestRateUpdated(_bps);
-    }
-
     function setTreasury(address _treasury) external onlyOwner nonReentrant {
         if (_treasury == address(0)) revert ZeroAddress();
         treasury = _treasury;
@@ -249,22 +250,49 @@ contract NairaLock is Ownable, ReentrancyGuard {
 
         if (loanState == 2) {
             refinanceEligible = (loan.collateralUsdc * ngnPerUsd) > (loan.ngnDebt * 1e6);
-            if (refinanceEligible) {
-                currentInterestDueUsdc = (loan.ngnDebt * interestRateBps * 1e6) / (ngnPerUsd * 10_000);
-            }
+            // currentInterestDueUsdc is per-term — use getRefinanceInterest(borrower, newTermChoice) instead
+            currentInterestDueUsdc = 0;
         }
     }
 
-    function getMaxBorrow(uint256 usdcAmount)
+    function getMaxBorrow(uint256 usdcAmount, uint8 termChoice)
         external
         view
         returns (uint256 maxNgn, uint256 interestUsdc, uint256 collateralAfterInterest)
     {
+        require(termChoice < 3, "Invalid term choice");
         // Max NGN = 50% of deposit value
         maxNgn = (usdcAmount * ngnPerUsd) / (2 * 1e6);
-        // Interest is on the borrowed amount (maxNgn), converted to USDC
-        interestUsdc = (maxNgn * interestRateBps * 1e6) / (ngnPerUsd * 10_000);
-        // Collateral locked = full deposit minus interest on the borrowed amount
+        // Interest is on the borrowed amount (maxNgn) at the selected term's rate
+        interestUsdc = (maxNgn * termInterestRateBps[termChoice] * 1e6) / (ngnPerUsd * 10_000);
+        // Collateral locked = full deposit minus interest
         collateralAfterInterest = usdcAmount - interestUsdc;
+    }
+
+    /// @notice Returns all three per-term interest rates (bps).
+    function getTermRates() external view returns (uint256 rate0, uint256 rate1, uint256 rate2) {
+        rate0 = termInterestRateBps[0];
+        rate1 = termInterestRateBps[1];
+        rate2 = termInterestRateBps[2];
+    }
+
+    /// @notice Returns the USDC interest that would be deducted for refinancing into a given term right now.
+    function getRefinanceInterest(address borrower, uint8 newTermChoice)
+        external
+        view
+        returns (uint256 interestUsdc)
+    {
+        require(newTermChoice < 3, "Invalid term choice");
+        Loan storage loan = loans[borrower];
+        if (!loan.active || ngnPerUsd == 0) return 0;
+        interestUsdc = (loan.ngnDebt * termInterestRateBps[newTermChoice] * 1e6) / (ngnPerUsd * 10_000);
+    }
+
+    /// @notice Replace setInterestRateBps — sets the rate for one specific term.
+    function setTermInterestRateBps(uint8 termChoice, uint256 _bps) external onlyOwner nonReentrant {
+        require(termChoice < 3, "Invalid term choice");
+        require(_bps < 10_000, "Interest too high");
+        termInterestRateBps[termChoice] = _bps;
+        emit TermInterestRateUpdated(termChoice, _bps);
     }
 }

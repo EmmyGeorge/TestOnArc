@@ -3,7 +3,7 @@ import { useAccount } from "wagmi";
 import { Loader2, CreditCard, RefreshCw, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { buildTxExplorerUrl } from "@/onchain-facts";
-import { useLoanPosition, useRefinanceMyLoan } from "@/hooks/useNairaLock";
+import { useLoanPosition, useRefinanceMyLoan, useGetRefinanceInterest } from "@/hooks/useNairaLock";
 import {
   formatUsdc,
   formatNgn,
@@ -29,10 +29,11 @@ export function GraceActions({ onDone: _onDone }: { onDone?: () => void }) {
 
   const [newTerm, setNewTerm] = useState<TermChoice>(0);
   const [repayLoading, setRepayLoading] = useState(false);
+  const { data: refinanceInterestUsdc } = useGetRefinanceInterest(address, newTerm);
 
   if (!loanData) return null;
 
-  const [loan, loanState, refinanceEligible, currentInterestDueUsdc] = loanData;
+  const [loan, loanState, refinanceEligible] = loanData;
 
   // Only show during grace period (state 2)
   if (loanState !== 2) return null;
@@ -117,7 +118,7 @@ export function GraceActions({ onDone: _onDone }: { onDone?: () => void }) {
             </p>
             <div className="flex items-center justify-between text-xs mb-3 rounded-xl px-3 py-2" style={{ background: "rgba(186,43,76,0.06)" }}>
               <span style={{ color: "var(--muted)" }}>Interest to deduct</span>
-              <span className="font-semibold" style={{ color: "var(--danger)" }}>{formatUsdc(currentInterestDueUsdc)} USDC</span>
+              <span className="font-semibold" style={{ color: "var(--danger)" }}>{formatUsdc(refinanceInterestUsdc ?? 0n)} USDC</span>
             </div>
             <p className="text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Select new loan term</p>
             <div className="grid grid-cols-3 gap-2 mb-3">

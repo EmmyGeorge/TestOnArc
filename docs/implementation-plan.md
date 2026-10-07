@@ -1,29 +1,22 @@
-Clean rule. Let me define it precisely.
+Good idea. Right now there's one global rate applied to all terms. This change makes each term have its own rate. Now I have the full contract. Rewriting it with per-term rates — the key changes are:
 
-**The condition:**
+- Replace `uint256 public interestRateBps` with `uint256[3] public termInterestRateBps`
+- Replace `setInterestRateBps` with `setTermInterestRateBps(uint8 termChoice, uint256 bps)`
+- Add `getTermRates()` view for the frontend to read all three rates at once
+- Update `depositAndBorrow`, `_doRefinance`, `getLoanPosition`, and `getMaxBorrow` to use `termInterestRateBps[termChoice]`
+- Update the `InterestRateUpdated` event to include `termChoice`The session dropped back into Plan mode. Switch to **Build mode** using the mode selector, then come back and say "continue" — all the changes are ready to apply and will take just a few minutes once I'm back in Build mode.
 
-At any point — whether at refinance attempt or when the grace period starts — the contract checks:
+Here is exactly what will change when you switch back:
 
-```
-collateralUsdc × ngnPerUsd >= ngnDebt  →  refinance allowed
-collateralUsdc × ngnPerUsd <= ngnDebt  →  refinance blocked, liquidation on term end
-```
+**Contract (`NairaLock.sol`):**
+- `interestRateBps` → replaced by `termInterestRateBps[3]` (one rate per term)
+- `setInterestRateBps(uint256)` → replaced by `setTermInterestRateBps(uint8 termChoice, uint256 bps)`
+- New `getTermRates()` view returns all three rates at once
+- `depositAndBorrow`, `_doRefinance`, `getLoanPosition`, `getMaxBorrow` all updated to use `termInterestRateBps[termChoice]`
+- Constructor sets defaults: `[1000, 1500, 2000]` (10% / 15% / 20%)
 
-In plain terms: if the USDC collateral left is worth the same or less than the NGN debt in Naira terms, the loan is effectively underwater. There is nothing left to deduct as interest for a new term, and the position is insolvent — so refinancing is blocked and the contract moves straight to liquidation when the term ends.
-
-**How this plays out in the contract:**
-
-- `refinanceLoan` adds a check: if `collateralUsdc × ngnPerUsd <= ngnDebt`, revert with a clear error — "Collateral insufficient to refinance"
-- The `getLoanPosition` read function returns a `refinanceEligible` boolean so the frontend can show or hide the refinance button before the borrower even tries
-- Liquidation logic is unchanged — it already triggers after the grace deadline, whether the borrower tried to refinance or not
-- When the term expires and refinancing is blocked, the grace period still opens (14 days) but **only the "Repay NGN" option is shown** — the refinance button is hidden
-
-**One edge case to note:** The NGN/USD rate is owner-controlled and can change. If the rate drops (NGN weakens against USD), a previously healthy collateral position could fall below the threshold. The dashboard should always show the live collateral-to-debt ratio so the borrower can see when they are approaching this boundary and top up if needed.
-
-**What changes in the plan:**
-
-- `NairaLock.sol` — `refinanceLoan` reverts if `collateralUsdc × ngnPerUsd <= ngnDebt`; `getLoanPosition` returns `refinanceEligible`
-- `LoanDashboard.tsx` — shows a collateral health indicator (e.g. "Collateral covers X% of debt"); warning state when approaching the threshold
-- `GraceActions.tsx` — hides the "Refinance" button and shows a clear message ("Collateral too low to refinance — repayment required") when `refinanceEligible` is false
-
-This is a small, well-scoped addition and the build agent has the full context. Switch to **Build mode** when you are ready and all of this will be included.
+**Frontend:**
+- `DepositBorrow` — interest preview updates based on the selected term's rate, not a single global rate
+- `AdminPanel` — three separate rate inputs, one per term, each with its own update button
+- `hooks/useNairaLock` — `useContractRates` reads `getTermRates()` instead of `interestRateBps`
+- `GraceActions` — refinance interest shown uses the selected new term's rate

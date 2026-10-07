@@ -45,7 +45,7 @@ interface LoanDashboardProps {
 export function LoanDashboard({ onGoToGraceActions }: LoanDashboardProps) {
   const { address } = useAccount();
   const { data: loanData, isLoading, refetch } = useLoanPosition(address);
-  const { ngnRate, interestRate } = useContractRates();
+  const { ngnRate } = useContractRates();
 
   if (!address) {
     return (
@@ -75,9 +75,8 @@ export function LoanDashboard({ onGoToGraceActions }: LoanDashboardProps) {
     );
   }
 
-  const [loan, loanState, refinanceEligible, currentInterestDueUsdc] = loanData;
+  const [loan, loanState, refinanceEligible] = loanData;
   const ngnPerUsd = ngnRate.data as bigint | undefined;
-  const rateBps = interestRate.data as bigint | undefined;
 
   if (loanState === 0) {
     return (
@@ -235,10 +234,9 @@ export function LoanDashboard({ onGoToGraceActions }: LoanDashboardProps) {
           <p className="text-sm" style={{ color: "var(--ink-2)" }}>
             Your loan term has ended. Repay your NGN debt or refinance before the grace period expires to avoid liquidation.
           </p>
-          {currentInterestDueUsdc > 0n && !!refinanceEligible && (
+          {!!refinanceEligible && (
             <p className="text-xs" style={{ color: "var(--muted)" }}>
-              Refinance cost: <span className="font-semibold" style={{ color: "var(--ink)" }}>{formatUsdc(currentInterestDueUsdc)} USDC</span>
-              {rateBps ? ` (${Number(rateBps) / 100}% of debt)` : ""}
+              Refinancing available — interest will be deducted from collateral
             </p>
           )}
           {!refinanceEligible && (

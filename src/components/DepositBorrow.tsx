@@ -50,17 +50,18 @@ export function DepositBorrow({ onSuccess }: { onSuccess?: () => void }) {
 
   const { data: balance } = useUsdcBalance();
   const { data: allowance, refetch: refetchAllowance } = useUsdcAllowance();
-  const { data: maxBorrowData } = useMaxBorrow(usdcRaw);
-  const { ngnRate, interestRate } = useContractRates();
+  const { data: maxBorrowData } = useMaxBorrow(usdcRaw, termChoice);
+  const { ngnRate, termRates } = useContractRates();
   const approve = useApproveUsdc();
   const borrow = useDepositAndBorrow();
 
   const maxNgn = maxBorrowData?.[0] ?? 0n;
   const ngnPerUsd = ngnRate.data as bigint | undefined;
-  const rateBps = interestRate.data as bigint | undefined;
+  // Selected term's current rate in bps
+  const rateBps = termRates.data?.[termChoice];
 
   // Interest is on the USDC equivalent of the NGN amount the user actually wants to borrow
-  // Formula mirrors the contract: ngnRequested * interestRateBps * 1e6 / (ngnPerUsd * 10_000)
+  // Formula mirrors the contract: ngnRequested * termInterestRateBps[termChoice] * 1e6 / (ngnPerUsd * 10_000)
   const actualInterestUsdc =
     ngnRaw > 0n && ngnPerUsd && ngnPerUsd > 0n && rateBps !== undefined
       ? (ngnRaw * rateBps * 1_000_000n) / (ngnPerUsd * 10_000n)

@@ -1,13 +1,20 @@
 {
-  "contractAddress": "0x9ece6dfa2081fc1fd7e4d40d095e0398a264f749",
+  "contractAddress": "0xc1662151548afb09e7cf5e039a8b7faa4a5bd775",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/NairaLock.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/NairaLock.sol/NairaLock.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x9ece6dfa2081fc1fd7e4d40d095e0398a264f749"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xc1662151548afb09e7cf5e039a8b7faa4a5bd775"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0xc1662151548afb09e7cf5e039a8b7faa4a5bd775",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0xc1662151548afb09e7cf5e039a8b7faa4a5bd775",
+      "txHash": "0x887bffa2d590fbf539261f39c99bcc2f351038e5266c2a7c09f6433157442268",
+      "deployedAt": "2026-10-07T10:27:36.056Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0x9ece6dfa2081fc1fd7e4d40d095e0398a264f749",
@@ -39,11 +46,6 @@
         },
         {
           "name": "_ngnPerUsd",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "_interestRateBps",
           "type": "uint256",
           "internalType": "uint256"
         },
@@ -215,6 +217,11 @@
           "name": "usdcAmount",
           "type": "uint256",
           "internalType": "uint256"
+        },
+        {
+          "name": "termChoice",
+          "type": "uint8",
+          "internalType": "uint8"
         }
       ],
       "outputs": [
@@ -238,11 +245,45 @@
     },
     {
       "type": "function",
-      "name": "interestRateBps",
+      "name": "getRefinanceInterest",
+      "inputs": [
+        {
+          "name": "borrower",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "newTermChoice",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "interestUsdc",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getTermRates",
       "inputs": [],
       "outputs": [
         {
-          "name": "",
+          "name": "rate0",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "rate1",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "rate2",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -390,10 +431,10 @@
     },
     {
       "type": "function",
-      "name": "setInterestRateBps",
+      "name": "setNgnRate",
       "inputs": [
         {
-          "name": "_bps",
+          "name": "_ngnPerUsd",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -403,10 +444,15 @@
     },
     {
       "type": "function",
-      "name": "setNgnRate",
+      "name": "setTermInterestRateBps",
       "inputs": [
         {
-          "name": "_ngnPerUsd",
+          "name": "termChoice",
+          "type": "uint8",
+          "internalType": "uint8"
+        },
+        {
+          "name": "_bps",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -426,6 +472,25 @@
       ],
       "outputs": [],
       "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "termInterestRateBps",
+      "inputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
     },
     {
       "type": "function",
@@ -491,19 +556,6 @@
         },
         {
           "name": "addedUsdc",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
-        }
-      ],
-      "anonymous": false
-    },
-    {
-      "type": "event",
-      "name": "InterestRateUpdated",
-      "inputs": [
-        {
-          "name": "newBps",
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
@@ -651,6 +703,25 @@
           "type": "address",
           "indexed": true,
           "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "TermInterestRateUpdated",
+      "inputs": [
+        {
+          "name": "termChoice",
+          "type": "uint8",
+          "indexed": true,
+          "internalType": "uint8"
+        },
+        {
+          "name": "newBps",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
         }
       ],
       "anonymous": false
