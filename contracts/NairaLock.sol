@@ -80,13 +80,15 @@ contract NairaLock is Ownable, ReentrancyGuard {
         if (usdcAmount == 0 || ngnRequested == 0) revert ZeroAmount();
         require(termChoice < 3, "Invalid term choice");
 
-        uint256 interestUsdc = (usdcAmount * interestRateBps) / 10_000;
+        // Max borrowable NGN is 50% of the full deposit value
+        uint256 maxNgn = (usdcAmount * ngnPerUsd) / (2 * 1e6);
+        if (ngnRequested > maxNgn) revert ExceedsMaxBorrow(ngnRequested, maxNgn);
+
+        // Interest is charged on the borrowed amount (converted to USDC), not the deposit
+        uint256 interestUsdc = (ngnRequested * interestRateBps * 1e6) / (ngnPerUsd * 10_000);
         if (interestUsdc >= usdcAmount) revert InsufficientCollateralForInterest(usdcAmount, interestUsdc);
 
-        // LTV is enforced on net collateral after interest deduction
         uint256 collateralLocked = usdcAmount - interestUsdc;
-        uint256 maxNgn = (collateralLocked * ngnPerUsd) / (2 * 1e6);
-        if (ngnRequested > maxNgn) revert ExceedsMaxBorrow(ngnRequested, maxNgn);
 
         usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
         usdc.safeTransfer(treasury, interestUsdc);
@@ -258,8 +260,11 @@ contract NairaLock is Ownable, ReentrancyGuard {
         view
         returns (uint256 maxNgn, uint256 interestUsdc, uint256 collateralAfterInterest)
     {
+        // Max NGN = 50% of deposit value
         maxNgn = (usdcAmount * ngnPerUsd) / (2 * 1e6);
-        interestUsdc = (usdcAmount * interestRateBps) / 10_000;
+        // Interest is on the borrowed amount (maxNgn), converted to USDC
+        interestUsdc = (maxNgn * interestRateBps * 1e6) / (ngnPerUsd * 10_000);
+        // Collateral locked = full deposit minus interest on the borrowed amount
         collateralAfterInterest = usdcAmount - interestUsdc;
     }
 }

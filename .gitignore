@@ -1,0 +1,26 @@
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Circle recovery files — sensitive, keep offline
+.circle/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Foundry build artifacts
+contracts/out/
+contracts/cache/
+
+# Logs
+*.log
+/tmp/
+
+# OS files
+.DS_Store
+Thumbs.db

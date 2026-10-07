@@ -56,10 +56,16 @@ export function DepositBorrow({ onSuccess }: { onSuccess?: () => void }) {
   const borrow = useDepositAndBorrow();
 
   const maxNgn = maxBorrowData?.[0] ?? 0n;
-  const interestUsdc = maxBorrowData?.[1] ?? 0n;
-  const collateralAfterInterest = maxBorrowData?.[2] ?? 0n;
   const ngnPerUsd = ngnRate.data as bigint | undefined;
   const rateBps = interestRate.data as bigint | undefined;
+
+  // Interest is on the USDC equivalent of the NGN amount the user actually wants to borrow
+  // Formula mirrors the contract: ngnRequested * interestRateBps * 1e6 / (ngnPerUsd * 10_000)
+  const actualInterestUsdc =
+    ngnRaw > 0n && ngnPerUsd && ngnPerUsd > 0n && rateBps !== undefined
+      ? (ngnRaw * rateBps * 1_000_000n) / (ngnPerUsd * 10_000n)
+      : 0n;
+  const collateralAfterInterest = usdcRaw > actualInterestUsdc ? usdcRaw - actualInterestUsdc : 0n;
 
   const needsApproval = usdcRaw > 0n && (allowance ?? 0n) < usdcRaw;
 
@@ -151,11 +157,11 @@ export function DepositBorrow({ onSuccess }: { onSuccess?: () => void }) {
           </div>
 
           {/* Interest preview */}
-          {usdcRaw > 0n && rateBps !== undefined && (
+          {ngnRaw > 0n && rateBps !== undefined && actualInterestUsdc > 0n && (
             <div className="flex items-start gap-2 rounded-xl px-3 py-2.5" style={{ background: "rgba(186,43,76,0.06)" }}>
               <Info className="size-3.5 mt-0.5 shrink-0" style={{ color: "var(--danger)" }} />
               <p className="text-xs" style={{ color: "var(--danger)" }}>
-                <span className="font-semibold">{formatUsdc(interestUsdc)} USDC</span> interest deducted upfront ({Number(rateBps) / 100}% of deposit).{" "}
+                <span className="font-semibold">{formatUsdc(actualInterestUsdc)} USDC</span> interest deducted upfront ({Number(rateBps) / 100}% of borrowed amount).{" "}
                 <span className="font-semibold">{formatUsdc(collateralAfterInterest)} USDC</span> will be locked as collateral.
               </p>
             </div>
