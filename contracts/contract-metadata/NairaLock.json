@@ -1,13 +1,20 @@
 {
-  "contractAddress": "0xc1662151548afb09e7cf5e039a8b7faa4a5bd775",
+  "contractAddress": "0xb946ca8fbb355b74755019597d0c973f6b1a9f66",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/NairaLock.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/NairaLock.sol/NairaLock.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xc1662151548afb09e7cf5e039a8b7faa4a5bd775"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xb946ca8fbb355b74755019597d0c973f6b1a9f66"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0xb946ca8fbb355b74755019597d0c973f6b1a9f66",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0xb946ca8fbb355b74755019597d0c973f6b1a9f66",
+      "txHash": "0x2f6e2f9813912eb005121a1c56ffa4d184526c7d825b4db012394dda890cc7e1",
+      "deployedAt": "2026-10-07T11:02:16.891Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0xc1662151548afb09e7cf5e039a8b7faa4a5bd775",
