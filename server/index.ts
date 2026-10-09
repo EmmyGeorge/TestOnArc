@@ -27,10 +27,15 @@ import { callMarkRepaid, verifyLoanOpened } from "./onchain";
 import { saveBorrower, startCron } from "./cron";
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
 
 app.use(cors({
-  origin: ["http://localhost:5173", `https://${process.env.PREVIEW_HOSTNAME || "localhost"}`],
+  origin: [
+    "http://localhost:5173",
+    `https://${process.env.PREVIEW_HOSTNAME || "localhost"}`,
+    "https://testonarc-production.up.railway.app",
+    /\.railway\.app$/,
+  ],
 }));
 
 // Raw body for webhook — must come before express.json()
