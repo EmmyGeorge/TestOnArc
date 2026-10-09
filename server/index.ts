@@ -224,7 +224,7 @@ app.post("/api/register-borrower", (req, res) => {
 const distPath = path.join(process.cwd(), "dist");
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get("*", (_req, res) => {
+  app.get(/(.*)/, (_req, res) => {
     res.sendFile(path.join(distPath, "index.html"));
   });
 }
