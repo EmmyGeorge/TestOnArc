@@ -1,5 +1,6 @@
 /**
  * Hooks for reading and writing to the NairaLock contract.
+ * Multi-loan: all loan-specific hooks take a loanIndex parameter.
  */
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from "wagmi";
 import { erc20Abi } from "viem";
@@ -8,10 +9,13 @@ import { getNairaLockAddress, NAIRA_LOCK_ABI, ARC_TESTNET_CHAIN_ID, type LoanDat
 
 const CHAIN_ID = ARC_TESTNET_CHAIN_ID;
 
+function getContractAddr(): `0x${string}` | undefined {
+  try { return getNairaLockAddress(); } catch { return undefined; }
+}
+
 export function useUsdcBalance() {
   const { address } = useAccount();
   const usdc = getUsdc(CHAIN_ID);
-
   return useReadContract({
     address: usdc?.address as `0x${string}`,
     abi: erc20Abi,
@@ -25,13 +29,7 @@ export function useUsdcBalance() {
 export function useUsdcAllowance() {
   const { address } = useAccount();
   const usdc = getUsdc(CHAIN_ID);
-  let contractAddress: `0x${string}` | undefined;
-  try {
-    contractAddress = getNairaLockAddress();
-  } catch {
-    // not deployed yet
-  }
-
+  const contractAddress = getContractAddr();
   return useReadContract({
     address: usdc?.address as `0x${string}`,
     abi: erc20Abi,
@@ -42,32 +40,39 @@ export function useUsdcAllowance() {
   });
 }
 
-export function useLoanPosition(borrowerAddress?: string) {
-  let contractAddress: `0x${string}` | undefined;
-  try {
-    contractAddress = getNairaLockAddress();
-  } catch {
-    // not deployed yet
-  }
+/** Returns total number of loans for a borrower */
+export function useLoanCount(borrowerAddress?: string) {
+  const contractAddress = getContractAddr();
+  return useReadContract({
+    address: contractAddress,
+    abi: NAIRA_LOCK_ABI,
+    functionName: "getLoanCount",
+    args: borrowerAddress ? [borrowerAddress as `0x${string}`] : undefined,
+    chainId: CHAIN_ID,
+    query: { enabled: !!borrowerAddress && !!contractAddress, refetchInterval: 15_000 },
+  }) as { data: bigint | undefined; isLoading: boolean; refetch: () => void };
+}
 
+/** Returns loan position for a specific loanIndex */
+export function useLoanPosition(borrowerAddress?: string, loanIndex?: number) {
+  const contractAddress = getContractAddr();
   return useReadContract({
     address: contractAddress,
     abi: NAIRA_LOCK_ABI,
     functionName: "getLoanPosition",
-    args: borrowerAddress ? [borrowerAddress as `0x${string}`] : undefined,
+    args: borrowerAddress !== undefined && loanIndex !== undefined
+      ? [borrowerAddress as `0x${string}`, BigInt(loanIndex)]
+      : undefined,
     chainId: CHAIN_ID,
-    query: { enabled: !!borrowerAddress && !!contractAddress, refetchInterval: 15_000 },
+    query: {
+      enabled: !!borrowerAddress && loanIndex !== undefined && !!contractAddress,
+      refetchInterval: 15_000,
+    },
   }) as { data: [LoanData["loan"], LoanData["loanState"], boolean, bigint] | undefined; isLoading: boolean; refetch: () => void };
 }
 
 export function useMaxBorrow(usdcAmount: bigint, termChoice: 0 | 1 | 2) {
-  let contractAddress: `0x${string}` | undefined;
-  try {
-    contractAddress = getNairaLockAddress();
-  } catch {
-    // not deployed yet
-  }
-
+  const contractAddress = getContractAddr();
   return useReadContract({
     address: contractAddress,
     abi: NAIRA_LOCK_ABI,
@@ -75,34 +80,36 @@ export function useMaxBorrow(usdcAmount: bigint, termChoice: 0 | 1 | 2) {
     args: [usdcAmount, termChoice],
     chainId: CHAIN_ID,
     query: { enabled: !!contractAddress && usdcAmount > 0n },
-  }) as { data: [bigint, bigint, bigint] | undefined };
+  }) as { data: [bigint, bigint, bigint, bigint] | undefined };
 }
 
-export function useGetRefinanceInterest(borrowerAddress: string | undefined, newTermChoice: 0 | 1 | 2) {
-  let contractAddress: `0x${string}` | undefined;
-  try {
-    contractAddress = getNairaLockAddress();
-  } catch {
-    // not deployed yet
-  }
+export function useProcessingFee() {
+  const contractAddress = getContractAddr();
+  return useReadContract({
+    address: contractAddress,
+    abi: NAIRA_LOCK_ABI,
+    functionName: "processingFeeUsdc",
+    chainId: CHAIN_ID,
+    query: { enabled: !!contractAddress, refetchInterval: 60_000 },
+  }) as { data: bigint | undefined };
+}
 
+export function useGetRefinanceInterest(borrowerAddress: string | undefined, loanIndex: number | undefined, newTermChoice: 0 | 1 | 2) {
+  const contractAddress = getContractAddr();
   return useReadContract({
     address: contractAddress,
     abi: NAIRA_LOCK_ABI,
     functionName: "getRefinanceInterest",
-    args: borrowerAddress ? [borrowerAddress as `0x${string}`, newTermChoice] : undefined,
+    args: borrowerAddress !== undefined && loanIndex !== undefined
+      ? [borrowerAddress as `0x${string}`, BigInt(loanIndex), newTermChoice]
+      : undefined,
     chainId: CHAIN_ID,
-    query: { enabled: !!contractAddress && !!borrowerAddress, refetchInterval: 15_000 },
+    query: { enabled: !!contractAddress && !!borrowerAddress && loanIndex !== undefined, refetchInterval: 15_000 },
   }) as { data: bigint | undefined };
 }
 
 export function useContractRates() {
-  let contractAddress: `0x${string}` | undefined;
-  try {
-    contractAddress = getNairaLockAddress();
-  } catch {
-    // not deployed yet
-  }
+  const contractAddress = getContractAddr();
 
   const ngnRate = useReadContract({
     address: contractAddress,
@@ -155,12 +162,8 @@ export function useDepositAndBorrow() {
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const deposit = (usdcAmount: bigint, ngnRequested: bigint, termChoice: 0 | 1 | 2) => {
-    let contractAddress: `0x${string}`;
-    try {
-      contractAddress = getNairaLockAddress();
-    } catch {
-      return;
-    }
+    const contractAddress = getContractAddr();
+    if (!contractAddress) return;
     writeContract({
       address: contractAddress,
       abi: NAIRA_LOCK_ABI,
@@ -177,18 +180,14 @@ export function useTopUpCollateral() {
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
-  const topUp = (additionalUsdc: bigint) => {
-    let contractAddress: `0x${string}`;
-    try {
-      contractAddress = getNairaLockAddress();
-    } catch {
-      return;
-    }
+  const topUp = (loanIndex: number, additionalUsdc: bigint) => {
+    const contractAddress = getContractAddr();
+    if (!contractAddress) return;
     writeContract({
       address: contractAddress,
       abi: NAIRA_LOCK_ABI,
       functionName: "topUpCollateral",
-      args: [additionalUsdc],
+      args: [BigInt(loanIndex), additionalUsdc],
       chainId: CHAIN_ID,
     });
   };
@@ -200,18 +199,14 @@ export function useRefinanceMyLoan() {
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
-  const refinance = (newTermChoice: 0 | 1 | 2) => {
-    let contractAddress: `0x${string}`;
-    try {
-      contractAddress = getNairaLockAddress();
-    } catch {
-      return;
-    }
+  const refinance = (loanIndex: number, newTermChoice: 0 | 1 | 2) => {
+    const contractAddress = getContractAddr();
+    if (!contractAddress) return;
     writeContract({
       address: contractAddress,
       abi: NAIRA_LOCK_ABI,
       functionName: "refinanceMyLoan",
-      args: [newTermChoice],
+      args: [BigInt(loanIndex), newTermChoice],
       chainId: CHAIN_ID,
     });
   };
@@ -220,17 +215,32 @@ export function useRefinanceMyLoan() {
 }
 
 // Admin hooks
+export function useSetProcessingFee() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const setFee = (feeUsdc: bigint) => {
+    const contractAddress = getContractAddr();
+    if (!contractAddress) return;
+    writeContract({
+      address: contractAddress,
+      abi: NAIRA_LOCK_ABI,
+      functionName: "setProcessingFee",
+      args: [feeUsdc],
+      chainId: CHAIN_ID,
+    });
+  };
+
+  return { setFee, hash, isPending, isConfirming, isSuccess, error };
+}
+
 export function useSetNgnRate() {
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const setRate = (ngnPerUsd: bigint) => {
-    let contractAddress: `0x${string}`;
-    try {
-      contractAddress = getNairaLockAddress();
-    } catch {
-      return;
-    }
+    const contractAddress = getContractAddr();
+    if (!contractAddress) return;
     writeContract({
       address: contractAddress,
       abi: NAIRA_LOCK_ABI,
@@ -248,12 +258,8 @@ export function useSetTermInterestRate() {
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const setTermInterest = (termChoice: 0 | 1 | 2, bps: bigint) => {
-    let contractAddress: `0x${string}`;
-    try {
-      contractAddress = getNairaLockAddress();
-    } catch {
-      return;
-    }
+    const contractAddress = getContractAddr();
+    if (!contractAddress) return;
     writeContract({
       address: contractAddress,
       abi: NAIRA_LOCK_ABI,

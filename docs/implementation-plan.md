@@ -1,22 +1,31 @@
-Good idea. Right now there's one global rate applied to all terms. This change makes each term have its own rate. Now I have the full contract. Rewriting it with per-term rates — the key changes are:
+Good changes. Let me think through the implications carefully before building.
 
-- Replace `uint256 public interestRateBps` with `uint256[3] public termInterestRateBps`
-- Replace `setInterestRateBps` with `setTermInterestRateBps(uint8 termChoice, uint256 bps)`
-- Add `getTermRates()` view for the frontend to read all three rates at once
-- Update `depositAndBorrow`, `_doRefinance`, `getLoanPosition`, and `getMaxBorrow` to use `termInterestRateBps[termChoice]`
-- Update the `InterestRateUpdated` event to include `termChoice`The session dropped back into Plan mode. Switch to **Build mode** using the mode selector, then come back and say "continue" — all the changes are ready to apply and will take just a few minutes once I'm back in Build mode.
+**Change 1 — LTV 60%:**
+Simple — change `LTV_BPS` from `5000` to `6000`. Max NGN borrow becomes 60% of collateral value instead of 50%.
 
-Here is exactly what will change when you switch back:
+**Change 2 — Multiple loans per address:**
+This is a bigger structural change. Currently the contract uses `mapping(address => Loan)` — one loan per address. To support multiple loans, this needs to become `mapping(address => Loan[])` with a loan ID system.
 
-**Contract (`NairaLock.sol`):**
-- `interestRateBps` → replaced by `termInterestRateBps[3]` (one rate per term)
-- `setInterestRateBps(uint256)` → replaced by `setTermInterestRateBps(uint8 termChoice, uint256 bps)`
-- New `getTermRates()` view returns all three rates at once
-- `depositAndBorrow`, `_doRefinance`, `getLoanPosition`, `getMaxBorrow` all updated to use `termInterestRateBps[termChoice]`
-- Constructor sets defaults: `[1000, 1500, 2000]` (10% / 15% / 20%)
+Here is how it works with the 60% LTV multi-loan model:
+
+**Collateral is shared across all loans.** The total USDC deposited across all open loans for one address must collectively satisfy 60% LTV. So:
+
+- Borrower deposits 100 USDC on Loan 1, borrows ₦96,000 (60% of 100 USDC at ₦1,600)
+- To open Loan 2, they must deposit fresh USDC — they can't reuse the collateral already locked in Loan 1
+- Each loan is independent: its own collateral, its own term, its own grace period, its own debt
+
+This is actually simpler and safer than shared collateral — each loan stands alone. The borrower just opens a new loan with a new USDC deposit.
+
+**What changes in the contract:**
+- `mapping(address => Loan) public loans` → `mapping(address => Loan[]) public loans`
+- All functions that take `address borrower` now also take `uint256 loanIndex`
+- `depositAndBorrow` pushes a new loan into the array (no "already active" block)
+- `topUpCollateral(loanIndex)`, `refinanceMyLoan(loanIndex)`, `refinanceLoan(borrower, loanIndex, newTermChoice)`, `markRepaid(borrower, loanIndex)`, `liquidate(borrower, loanIndex)` all updated
+- `getLoanPosition(borrower, loanIndex)` and `getLoanCount(borrower)` added
+- Cron and frontend updated to handle multiple loans per address
 
 **Frontend:**
-- `DepositBorrow` — interest preview updates based on the selected term's rate, not a single global rate
-- `AdminPanel` — three separate rate inputs, one per term, each with its own update button
-- `hooks/useNairaLock` — `useContractRates` reads `getTermRates()` instead of `interestRateBps`
-- `GraceActions` — refinance interest shown uses the selected new term's rate
+- Loan Dashboard shows all active loans in a scrollable list, each with its own health bar, countdown, and action buttons
+- Each loan card has its own Repay / Refinance / Top Up controls
+
+Shall I go ahead and build this?

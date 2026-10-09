@@ -1,13 +1,27 @@
 {
-  "contractAddress": "0xb946ca8fbb355b74755019597d0c973f6b1a9f66",
+  "contractAddress": "0x93ed5b579e419195d668e0ddc8650278f16ff024",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/NairaLock.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/NairaLock.sol/NairaLock.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xb946ca8fbb355b74755019597d0c973f6b1a9f66"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x93ed5b579e419195d668e0ddc8650278f16ff024"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0x93ed5b579e419195d668e0ddc8650278f16ff024",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0x93ed5b579e419195d668e0ddc8650278f16ff024",
+      "txHash": "0x41cb522d1b43c35eb5d77872c873b913c510f3f8bc479b0e1b937eb630e00f43",
+      "deployedAt": "2026-10-09T13:02:42.344Z"
+    },
+    {
+      "chain": "Arc Testnet",
+      "address": "0xd8099a8b2fb69b6af8d188555168ee49fbdefdbd",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0xd8099a8b2fb69b6af8d188555168ee49fbdefdbd",
+      "txHash": "0xfe65ececf5e8172d902c06d71cb83e0aef2ca64dd48519661967c3b51156f554",
+      "deployedAt": "2026-10-09T12:26:55.131Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0xb946ca8fbb355b74755019597d0c973f6b1a9f66",
@@ -147,12 +161,36 @@
     },
     {
       "type": "function",
+      "name": "getLoanCount",
+      "inputs": [
+        {
+          "name": "borrower",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "getLoanPosition",
       "inputs": [
         {
           "name": "borrower",
           "type": "address",
           "internalType": "address"
+        },
+        {
+          "name": "loanIndex",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "outputs": [
@@ -246,6 +284,11 @@
           "name": "collateralAfterInterest",
           "type": "uint256",
           "internalType": "uint256"
+        },
+        {
+          "name": "processingFee",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "stateMutability": "view"
@@ -258,6 +301,11 @@
           "name": "borrower",
           "type": "address",
           "internalType": "address"
+        },
+        {
+          "name": "loanIndex",
+          "type": "uint256",
+          "internalType": "uint256"
         },
         {
           "name": "newTermChoice",
@@ -305,6 +353,11 @@
           "name": "borrower",
           "type": "address",
           "internalType": "address"
+        },
+        {
+          "name": "loanIndex",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "outputs": [],
@@ -318,6 +371,11 @@
           "name": "",
           "type": "address",
           "internalType": "address"
+        },
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "outputs": [
@@ -367,6 +425,11 @@
           "name": "borrower",
           "type": "address",
           "internalType": "address"
+        },
+        {
+          "name": "loanIndex",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "outputs": [],
@@ -400,12 +463,30 @@
     },
     {
       "type": "function",
+      "name": "processingFeeUsdc",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "refinanceLoan",
       "inputs": [
         {
           "name": "borrower",
           "type": "address",
           "internalType": "address"
+        },
+        {
+          "name": "loanIndex",
+          "type": "uint256",
+          "internalType": "uint256"
         },
         {
           "name": "newTermChoice",
@@ -420,6 +501,11 @@
       "type": "function",
       "name": "refinanceMyLoan",
       "inputs": [
+        {
+          "name": "loanIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
         {
           "name": "newTermChoice",
           "type": "uint8",
@@ -442,6 +528,19 @@
       "inputs": [
         {
           "name": "_ngnPerUsd",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setProcessingFee",
+      "inputs": [
+        {
+          "name": "_feeUsdc",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -504,6 +603,11 @@
       "name": "topUpCollateral",
       "inputs": [
         {
+          "name": "loanIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
           "name": "additionalUsdc",
           "type": "uint256",
           "internalType": "uint256"
@@ -562,6 +666,12 @@
           "internalType": "address"
         },
         {
+          "name": "loanIndex",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
           "name": "addedUsdc",
           "type": "uint256",
           "indexed": false,
@@ -579,6 +689,12 @@
           "type": "address",
           "indexed": true,
           "internalType": "address"
+        },
+        {
+          "name": "loanIndex",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
         },
         {
           "name": "deductedUsdc",
@@ -606,6 +722,12 @@
           "internalType": "address"
         },
         {
+          "name": "loanIndex",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
           "name": "collateralUsdc",
           "type": "uint256",
           "indexed": false,
@@ -619,6 +741,12 @@
         },
         {
           "name": "interestPaidUsdc",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "processingFeePaid",
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
@@ -641,6 +769,12 @@
           "type": "address",
           "indexed": true,
           "internalType": "address"
+        },
+        {
+          "name": "loanIndex",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
         },
         {
           "name": "interestPaidUsdc",
@@ -672,6 +806,12 @@
           "type": "address",
           "indexed": true,
           "internalType": "address"
+        },
+        {
+          "name": "loanIndex",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
         },
         {
           "name": "collateralReturned",
@@ -710,6 +850,19 @@
           "type": "address",
           "indexed": true,
           "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ProcessingFeeUpdated",
+      "inputs": [
+        {
+          "name": "newFee",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
         }
       ],
       "anonymous": false
@@ -791,11 +944,6 @@
     {
       "type": "error",
       "name": "LiquidationNotReady",
-      "inputs": []
-    },
-    {
-      "type": "error",
-      "name": "LoanAlreadyActive",
       "inputs": []
     },
     {

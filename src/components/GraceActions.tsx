@@ -4,13 +4,7 @@ import { Loader2, CreditCard, RefreshCw, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { buildTxExplorerUrl } from "@/onchain-facts";
 import { useLoanPosition, useRefinanceMyLoan, useGetRefinanceInterest } from "@/hooks/useNairaLock";
-import {
-  formatUsdc,
-  formatNgn,
-  TERM_LABELS,
-  ARC_TESTNET_CHAIN_ID,
-  type TermChoice,
-} from "@/utils/nairalock";
+import { formatUsdc, formatNgn, TERM_LABELS, ARC_TESTNET_CHAIN_ID, type TermChoice } from "@/utils/nairalock";
 
 const glass = {
   card: {
@@ -22,20 +16,17 @@ const glass = {
   } as React.CSSProperties,
 };
 
-export function GraceActions({ onDone: _onDone }: { onDone?: () => void }) {
+export function GraceActions({ loanIndex, onDone: _onDone }: { loanIndex: number; onDone?: () => void }) {
   const { address } = useAccount();
-  const { data: loanData } = useLoanPosition(address);
+  const { data: loanData } = useLoanPosition(address, loanIndex);
   const refinance = useRefinanceMyLoan();
 
   const [newTerm, setNewTerm] = useState<TermChoice>(0);
   const [repayLoading, setRepayLoading] = useState(false);
-  const { data: refinanceInterestUsdc } = useGetRefinanceInterest(address, newTerm);
+  const { data: refinanceInterestUsdc } = useGetRefinanceInterest(address, loanIndex, newTerm);
 
   if (!loanData) return null;
-
   const [loan, loanState, refinanceEligible] = loanData;
-
-  // Only show during grace period (state 2)
   if (loanState !== 2) return null;
 
   const handleRepay = async () => {
@@ -45,14 +36,13 @@ export function GraceActions({ onDone: _onDone }: { onDone?: () => void }) {
       const res = await fetch("/api/create-payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ borrower: address }),
+        body: JSON.stringify({ borrower: address, loanIndex }),
       });
       const data = await res.json() as { authorization_url?: string; error?: string };
       if (!res.ok || !data.authorization_url) {
         toast.error(data.error ?? "Failed to create payment link");
         return;
       }
-      // Open Paystack payment in new tab
       window.open(data.authorization_url, "_blank", "noopener,noreferrer");
       toast.info("Complete your NGN payment in the new tab. Your USDC will be released automatically once confirmed.");
     } catch (err) {
@@ -63,17 +53,14 @@ export function GraceActions({ onDone: _onDone }: { onDone?: () => void }) {
     }
   };
 
-  const handleRefinance = () => {
-    refinance.refinance(newTerm);
-  };
-
+  const handleRefinance = () => refinance.refinance(loanIndex, newTerm);
   const isRefinancing = refinance.isPending || refinance.isConfirming;
 
   return (
     <div className="space-y-4">
       <div className="p-5" style={glass.card}>
         <p className="mb-1 text-xs font-semibold uppercase tracking-widest" style={{ color: "#e08a00" }}>
-          Grace Period Actions
+          Grace Period — Loan #{loanIndex + 1}
         </p>
         <p className="text-sm mb-4" style={{ color: "var(--ink-2)" }}>
           Your loan term has ended. Choose to repay your NGN debt or refinance into a new term.
@@ -91,20 +78,20 @@ export function GraceActions({ onDone: _onDone }: { onDone?: () => void }) {
           </div>
         </div>
 
-        {/* Option 1: Repay NGN */}
+        {/* Option 1: Repay */}
         <div className="rounded-2xl p-4 mb-3" style={{ background: "rgba(26,128,71,0.06)", border: "1px solid rgba(26,128,71,0.2)" }}>
           <p className="text-sm font-semibold mb-1" style={{ color: "var(--success)" }}>Option 1 — Repay NGN principal</p>
           <p className="text-xs mb-3" style={{ color: "var(--ink-2)" }}>
-            Pay ₦{formatNgn(loan.ngnDebt)} via Paystack (bank transfer, card, USSD). Your {formatUsdc(loan.collateralUsdc)} USDC collateral will be released to your wallet automatically once confirmed.
+            Pay ₦{formatNgn(loan.ngnDebt)} via Paystack. Your {formatUsdc(loan.collateralUsdc)} USDC collateral will be released automatically.
           </p>
           <button
             onClick={() => void handleRepay()}
             disabled={repayLoading}
-            className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
+            className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-50"
             style={{ background: "var(--success)" }}
           >
             {repayLoading
-              ? <span className="flex items-center justify-center gap-2"><Loader2 className="size-4 animate-spin" />Creating payment link...</span>
+              ? <span className="flex items-center justify-center gap-2"><Loader2 className="size-4 animate-spin" />Creating link...</span>
               : <span className="flex items-center justify-center gap-2"><CreditCard className="size-4" />Pay ₦{formatNgn(loan.ngnDebt)} via Paystack</span>}
           </button>
         </div>
@@ -114,7 +101,7 @@ export function GraceActions({ onDone: _onDone }: { onDone?: () => void }) {
           <div className="rounded-2xl p-4" style={{ background: "rgba(18,45,69,0.04)", border: "1px solid var(--border)" }}>
             <p className="text-sm font-semibold mb-1" style={{ color: "var(--ink)" }}>Option 2 — Refinance (extend loan)</p>
             <p className="text-xs mb-3" style={{ color: "var(--ink-2)" }}>
-              Interest is deducted from your collateral upfront in USDC. Your NGN debt rolls over into a new term.
+              Interest is deducted from your collateral upfront in USDC. NGN debt rolls over into a new term.
             </p>
             <div className="flex items-center justify-between text-xs mb-3 rounded-xl px-3 py-2" style={{ background: "rgba(186,43,76,0.06)" }}>
               <span style={{ color: "var(--muted)" }}>Interest to deduct</span>
@@ -140,7 +127,7 @@ export function GraceActions({ onDone: _onDone }: { onDone?: () => void }) {
             <button
               onClick={handleRefinance}
               disabled={isRefinancing}
-              className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
+              className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-50"
               style={{ background: "var(--accent)" }}
             >
               {isRefinancing
@@ -148,27 +135,19 @@ export function GraceActions({ onDone: _onDone }: { onDone?: () => void }) {
                 : <span className="flex items-center justify-center gap-2"><RefreshCw className="size-4" />Refinance into {TERM_LABELS[newTerm]}</span>}
             </button>
             {refinance.hash && (
-              <a
-                href={buildTxExplorerUrl(ARC_TESTNET_CHAIN_ID, refinance.hash)}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-2 flex items-center justify-center gap-1 text-xs"
-                style={{ color: "var(--accent-hover)" }}
-              >
+              <a href={buildTxExplorerUrl(ARC_TESTNET_CHAIN_ID, refinance.hash)} target="_blank" rel="noreferrer"
+                className="mt-2 flex items-center justify-center gap-1 text-xs" style={{ color: "var(--accent-hover)" }}>
                 View transaction →
               </a>
             )}
           </div>
         ) : (
-          <div
-            className="rounded-2xl p-4 flex items-start gap-2"
-            style={{ background: "rgba(186,43,76,0.06)", border: "1px solid rgba(186,43,76,0.2)" }}
-          >
+          <div className="rounded-2xl p-4 flex items-start gap-2" style={{ background: "rgba(186,43,76,0.06)", border: "1px solid rgba(186,43,76,0.2)" }}>
             <AlertTriangle className="size-4 mt-0.5 shrink-0" style={{ color: "var(--danger)" }} />
             <div>
               <p className="text-sm font-semibold" style={{ color: "var(--danger)" }}>Refinancing not available</p>
               <p className="text-xs mt-0.5" style={{ color: "var(--ink-2)" }}>
-                Your remaining collateral is worth less than or equal to your NGN debt. You must repay the full NGN principal to recover any remaining collateral.
+                Your remaining collateral is worth less than or equal to your NGN debt. Repay the full NGN principal to recover any remaining collateral.
               </p>
             </div>
           </div>

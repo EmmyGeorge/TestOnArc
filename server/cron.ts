@@ -1,11 +1,8 @@
 /**
- * Liquidation cron — scans known borrowers and liquidates expired loans.
- *
- * Runs hourly. Maintains a simple in-memory + file-persisted set of known
- * borrower addresses populated whenever a LoanOpened event is seen via the
- * /register-borrower endpoint or webhook metadata.
+ * Liquidation cron — scans known borrowers and liquidates all expired loans.
+ * Runs hourly. Tracks borrower addresses in a file-persisted set.
  */
-import { callLiquidate, getLoanPosition } from "./onchain";
+import { callLiquidate, getLoanCount, getLoanPosition } from "./onchain";
 import fs from "fs";
 import path from "path";
 
@@ -16,9 +13,7 @@ function loadBorrowers(): string[] {
     if (fs.existsSync(BORROWERS_FILE)) {
       return JSON.parse(fs.readFileSync(BORROWERS_FILE, "utf8")) as string[];
     }
-  } catch {
-    // ignore
-  }
+  } catch { /* ignore */ }
   return [];
 }
 
@@ -39,16 +34,22 @@ export async function runLiquidationScan(): Promise<void> {
 
   for (const borrower of borrowers) {
     try {
-      const [, loanState] = await getLoanPosition(borrower);
-
-      // loanState 3 = liquidatable (graceDeadline passed, still active)
-      if (loanState === 3) {
-        console.log(`[cron] Liquidating ${borrower}`);
-        const hash = await callLiquidate(borrower);
-        console.log(`[cron] Liquidated ${borrower} tx=${hash}`);
+      const count = await getLoanCount(borrower);
+      for (let i = 0; i < count; i++) {
+        try {
+          const [, loanState] = await getLoanPosition(borrower, i);
+          // loanState 3 = liquidatable (graceDeadline passed, still active)
+          if (loanState === 3) {
+            console.log(`[cron] Liquidating ${borrower} loan #${i}`);
+            const hash = await callLiquidate(borrower, i);
+            console.log(`[cron] Liquidated ${borrower} loan #${i} tx=${hash}`);
+          }
+        } catch (err) {
+          console.error(`[cron] Error processing ${borrower} loan #${i}:`, err);
+        }
       }
     } catch (err) {
-      console.error(`[cron] Error processing ${borrower}:`, err);
+      console.error(`[cron] Error fetching loan count for ${borrower}:`, err);
     }
   }
 }
@@ -57,7 +58,6 @@ let cronInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startCron(): void {
   if (cronInterval) return;
-  // Run immediately then every hour
   void runLiquidationScan();
   cronInterval = setInterval(() => void runLiquidationScan(), 60 * 60 * 1000);
   console.log("[cron] Liquidation cron started (hourly)");

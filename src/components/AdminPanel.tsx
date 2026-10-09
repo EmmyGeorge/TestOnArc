@@ -3,8 +3,8 @@ import { useAccount } from "wagmi";
 import { Loader2, ShieldCheck, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { buildTxExplorerUrl } from "@/onchain-facts";
-import { useSetNgnRate, useSetTermInterestRate, useContractRates } from "@/hooks/useNairaLock";
-import { ARC_TESTNET_CHAIN_ID, TERM_LABELS, formatNgn, type TermChoice } from "@/utils/nairalock";
+import { useSetNgnRate, useSetTermInterestRate, useSetProcessingFee, useContractRates, useProcessingFee } from "@/hooks/useNairaLock";
+import { ARC_TESTNET_CHAIN_ID, TERM_LABELS, formatNgn, formatUsdc, type TermChoice } from "@/utils/nairalock";
 
 const glass = {
   card: {
@@ -19,10 +19,13 @@ const glass = {
 export function AdminPanel() {
   const { address } = useAccount();
   const { ngnRate, termRates, ownerAddress } = useContractRates();
+  const { data: currentProcessingFee } = useProcessingFee();
   const setRate = useSetNgnRate();
   const setTermInterest = useSetTermInterestRate();
+  const setFeeHook = useSetProcessingFee();
 
   const [newNgnRate, setNewNgnRate] = useState("");
+  const [newProcessingFee, setNewProcessingFee] = useState("");
   // Per-term bps inputs
   const [termBps, setTermBps] = useState<[string, string, string]>(["", "", ""]);
 
@@ -55,8 +58,17 @@ export function AdminPanel() {
     });
   };
 
+  const handleSetProcessingFee = () => {
+    const val = parseFloat(newProcessingFee);
+    if (isNaN(val) || val < 0) { toast.error("Enter a valid fee amount in USDC"); return; }
+    const feeUsdc = BigInt(Math.round(val * 1_000_000));
+    setFeeHook.setFee(feeUsdc);
+    setNewProcessingFee("");
+  };
+
   const rateWorking = setRate.isPending || setRate.isConfirming;
   const interestWorking = setTermInterest.isPending || setTermInterest.isConfirming;
+  const feeWorking = setFeeHook.isPending || setFeeHook.isConfirming;
 
   return (
     <div className="p-5" style={glass.card}>
@@ -154,6 +166,35 @@ export function AdminPanel() {
           </div>
           {setTermInterest.hash && (
             <a href={buildTxExplorerUrl(ARC_TESTNET_CHAIN_ID, setTermInterest.hash)} target="_blank" rel="noreferrer" className="mt-2 block text-xs" style={{ color: "var(--accent-hover)" }}>
+              View tx →
+            </a>
+          )}
+        </div>
+
+        {/* Processing fee */}
+        <div>
+          <p className="text-xs font-medium mb-1.5" style={{ color: "var(--muted)" }}>
+            Processing fee (USDC){currentProcessingFee !== undefined ? ` — current: ${formatUsdc(currentProcessingFee)} USDC` : ""}
+          </p>
+          <div className="flex gap-2">
+            <input
+              inputMode="decimal"
+              value={newProcessingFee}
+              onChange={(e) => setNewProcessingFee(e.target.value.replace(/[^0-9.]/g, ""))}
+              placeholder={currentProcessingFee !== undefined ? formatUsdc(currentProcessingFee) : "0.50"}
+              className="flex-1 rounded-xl px-3 py-2.5 text-sm outline-none"
+              style={{ background: "var(--surface-muted)", color: "var(--ink)", border: "1px solid var(--border)" }}
+            />
+            <button
+              onClick={handleSetProcessingFee}
+              disabled={!newProcessingFee || feeWorking}
+              className="rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+              style={{ background: "var(--accent)" }}>
+              {feeWorking ? <Loader2 className="size-4 animate-spin" /> : <Settings className="size-4" />}
+            </button>
+          </div>
+          {setFeeHook.hash && (
+            <a href={buildTxExplorerUrl(ARC_TESTNET_CHAIN_ID, setFeeHook.hash)} target="_blank" rel="noreferrer" className="mt-1 block text-xs" style={{ color: "var(--accent-hover)" }}>
               View tx →
             </a>
           )}
