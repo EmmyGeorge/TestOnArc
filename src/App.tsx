@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ConnectKitButton } from "connectkit";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import { TrendingUp, LayoutDashboard, AlertTriangle, PlusCircle, ShieldCheck } from "lucide-react";
 import { RateDisplay } from "@/components/RateDisplay";
@@ -84,7 +84,7 @@ export default function App() {
             <p className="display text-lg font-bold" style={{ color: "var(--ink)" }}>NairaLock</p>
             <p className="text-xs" style={{ color: "var(--muted)" }}>USDC-backed NGN lending</p>
           </div>
-          <ConnectKitButton />
+          <ConnectButton />
         </div>
       </header>
 
