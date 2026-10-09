@@ -54,7 +54,7 @@ export default function App() {
   const { data: loanCount } = useLoanCount(address);
   const { ownerAddress } = useContractRates();
 
-  const owner = ownerAddress.data as string | undefined;
+  const owner = (ownerAddress.data as string | undefined) ?? "0x6e6F92e77Ea03AEa44815c5aD7D9Bb7fb16C8cF5";
   const isOwner = address && owner && address.toLowerCase() === owner.toLowerCase();
 
   const handleGoToGraceActions = (loanIndex: number) => {
