@@ -1,11 +1,11 @@
 [phases.setup]
-nixPkgs = ["bun"]
+nixPkgs = ["nodejs_20"]
 
 [phases.install]
-cmds = ["bun install"]
+cmds = ["npm install --legacy-peer-deps"]
 
 [phases.build]
-cmds = ["bun run build"]
+cmds = ["npm run build"]
 
 [start]
-cmd = "bun run server/index.ts"
+cmd = "node --loader ts-node/esm server/index.ts"

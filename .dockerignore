@@ -1,0 +1,9 @@
+.git
+.env
+node_modules/.cache
+node_modules/.tmp
+contracts/out
+contracts/cache
+traces.jsonl
+console.jsonl
+.borrowers.json
