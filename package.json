@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "server": "bun run server/index.ts",
-    "start": "concurrently \"bun run dev\" \"bun run server\"",
+    "build": "vite build",
+    "start": "bun run server/index.ts",
+    "start:dev": "concurrently \"bun run dev\" \"bun run server\"",
     "deploy:self": "bun run ./scripts/self-deploy.ts",
     "compass:deploy": "bun run ./scripts/compass-deploy.ts",
     "fetch:abi": "bun run ./scripts/fetch-abi.ts",

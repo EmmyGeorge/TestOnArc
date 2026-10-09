@@ -12,6 +12,8 @@
  */
 import express from "express";
 import cors from "cors";
+import path from "path";
+import fs from "fs";
 import {
   initializeRepayment,
   verifyTransaction,
@@ -212,6 +214,15 @@ app.post("/api/register-borrower", (req, res) => {
   saveBorrower(address);
   res.json({ ok: true });
 });
+
+// ── Serve built frontend (production) ────────────────────────────────────────
+const distPath = path.join(process.cwd(), "dist");
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+}
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
