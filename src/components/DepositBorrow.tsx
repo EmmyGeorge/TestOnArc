@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useAccount, useSwitchChain } from "wagmi";
+import { useAccount, useSwitchChain, useSignMessage } from "wagmi";
 import { Loader2, Lock, Info, CheckCircle2, Building2, User } from "lucide-react";
 import { toast } from "sonner";
 import { parseAmount } from "@/onchain-money";
@@ -43,6 +43,7 @@ interface ResolvedAccount { accountName: string; accountNumber: string; bankCode
 export function DepositBorrow({ onSuccess }: { onSuccess?: () => void }) {
   const { address, chainId } = useAccount();
   const { switchChain } = useSwitchChain();
+  const { signMessageAsync } = useSignMessage();
 
   // Form state
   const [usdcInput, setUsdcInput] = useState("");
@@ -149,45 +150,70 @@ export function DepositBorrow({ onSuccess }: { onSuccess?: () => void }) {
   const needsApproval = usdcRaw > 0n && (allowance ?? 0n) < usdcRaw;
 
   // Approval confirmed
-  if (approve.isSuccess && step === "approving") {
-    void refetchAllowance();
-    setStep("idle");
-    toast.success("USDC approved");
-  }
+  useEffect(() => {
+    if (approve.isSuccess && step === "approving") {
+      void refetchAllowance();
+      setStep("idle");
+      toast.success("USDC approved");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approve.isSuccess]);
 
-  // Borrow confirmed — trigger disbursement
-  if (borrow.isSuccess && step === "borrowing" && borrow.hash) {
+  // Borrow confirmed — trigger disbursement exactly once via ref guard
+  const disburseCalledRef = useRef(false);
+  useEffect(() => {
+    if (!borrow.isSuccess || step !== "borrowing" || !borrow.hash || !address) return;
+    if (disburseCalledRef.current) return;
+    disburseCalledRef.current = true;
+
     setStep("done");
     toast.success("Loan opened! Disbursing NGN to your account...");
-    if (address) {
-      void fetch("/api/register-borrower", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address }),
-      });
-      // Trigger automatic NGN disbursement
-      void fetch("/api/disburse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          txHash: borrow.hash,
-          borrowerAddress: address,
-          ngnAmount: Number(ngnRaw),
-          accountNumber,
-          bankCode: selectedBank?.code,
-          accountName: resolvedAccount?.accountName,
-        }),
-      }).then(async (r) => {
-        const d = (await r.json()) as { ok?: boolean; error?: string };
+
+    const txHash = borrow.hash;
+    const bank = selectedBank;
+    const accNumber = accountNumber;
+    const ngnAmount = Number(ngnRaw);
+    const borrowerAddress = address;
+
+    void fetch("/api/register-borrower", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: borrowerAddress }),
+    });
+
+    // Build the message the borrower must sign — ties bank details to this specific tx
+    const message = `NairaLock disburse\ntxHash:${txHash}\naccountNumber:${accNumber}\nbankCode:${bank?.code ?? ""}`;
+
+    signMessageAsync({ message })
+      .then((signature) => {
+        return fetch("/api/disburse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            txHash,
+            borrowerAddress,
+            ngnAmount,
+            accountNumber: accNumber,
+            bankCode: bank?.code,
+            signature,
+          }),
+        });
+      })
+      .then(async (r) => {
+        const d = (await r.json()) as { ok?: boolean; error?: string; accountName?: string };
         if (d.ok) {
-          toast.success(`₦${formatNgn(ngnRaw)} is on its way to ${resolvedAccount?.accountName ?? "your account"}!`);
+          toast.success(`₦${formatNgn(ngnRaw)} is on its way to ${d.accountName ?? resolvedAccount?.accountName ?? "your account"}!`);
         } else {
           toast.error(`Disbursement issue: ${d.error ?? "Contact support"}`);
         }
+      })
+      .catch(() => {
+        toast.error("Wallet signature was rejected. Please try again or contact support.");
       });
-    }
+
     onSuccess?.();
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [borrow.isSuccess, step]);
 
   const filteredBanks = banks.filter((b) => b.name.toLowerCase().includes(bankSearch.toLowerCase()));
 

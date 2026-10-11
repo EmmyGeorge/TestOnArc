@@ -15,7 +15,8 @@ NairaLock is a USDC-collateralized NGN lending dApp on Arc Testnet. Users deposi
 | Contract | Network | Address | Explorer |
 |---|---|---|---|
 | NairaLock v1 (deprecated) | Arc Testnet | `0xe57acda2052f1cb2ec2a292d85936ab02a9c1dd7` | [View](https://explorer.testnet.arc.io/address/0xe57acda2052f1cb2ec2a292d85936ab02a9c1dd7) |
-| NairaLock v2 (current) | Arc Testnet | `0xb946ca8fbb355b74755019597d0c973f6b1a9f66` | [View](https://explorer.testnet.arc.io/address/0xb946ca8fbb355b74755019597d0c973f6b1a9f66) |
+| NairaLock v6 (deprecated) | Arc Testnet | `0xb946ca8fbb355b74755019597d0c973f6b1a9f66` | [View](https://explorer.testnet.arc.io/address/0xb946ca8fbb355b74755019597d0c973f6b1a9f66) |
+| NairaLock v7 (current) | Arc Testnet | `0x440499033437d1578289dd57ee3cb1469829a4cb` | [View](https://explorer.testnet.arc.io/address/0x440499033437d1578289dd57ee3cb1469829a4cb) |
 
 ## Environment Variables
 

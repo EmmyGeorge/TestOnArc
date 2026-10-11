@@ -27,7 +27,10 @@ export function GraceActions({ loanIndex, onDone: _onDone }: { loanIndex: number
 
   if (!loanData) return null;
   const [loan, loanState, refinanceEligible] = loanData;
-  if (loanState !== 2) return null;
+  // Allow state 1 (active, early repayment) and state 2 (grace period)
+  if (loanState !== 1 && loanState !== 2) return null;
+
+  const isEarlyRepay = loanState === 1;
 
   const handleRepay = async () => {
     if (!address) return;
@@ -36,14 +39,19 @@ export function GraceActions({ loanIndex, onDone: _onDone }: { loanIndex: number
       const res = await fetch("/api/create-payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ borrower: address, loanIndex }),
+        body: JSON.stringify({
+          borrowerAddress: address,
+          ngnAmount: Number(loan.ngnDebt),
+          email: "borrower@example.com", // user provides email on the Paystack page
+          loanIndex,
+        }),
       });
-      const data = await res.json() as { authorization_url?: string; error?: string };
-      if (!res.ok || !data.authorization_url) {
+      const data = await res.json() as { authorizationUrl?: string; error?: string };
+      if (!res.ok || !data.authorizationUrl) {
         toast.error(data.error ?? "Failed to create payment link");
         return;
       }
-      window.open(data.authorization_url, "_blank", "noopener,noreferrer");
+      window.open(data.authorizationUrl, "_blank", "noopener,noreferrer");
       toast.info("Complete your NGN payment in the new tab. Your USDC will be released automatically once confirmed.");
     } catch (err) {
       toast.error("Failed to reach payment server");
@@ -59,11 +67,14 @@ export function GraceActions({ loanIndex, onDone: _onDone }: { loanIndex: number
   return (
     <div className="space-y-4">
       <div className="p-5" style={glass.card}>
-        <p className="mb-1 text-xs font-semibold uppercase tracking-widest" style={{ color: "#e08a00" }}>
-          Grace Period — Loan #{loanIndex + 1}
+        <p className="mb-1 text-xs font-semibold uppercase tracking-widest"
+          style={{ color: isEarlyRepay ? "var(--success)" : "#e08a00" }}>
+          {isEarlyRepay ? "Early Repayment" : "Grace Period"} — Loan #{loanIndex + 1}
         </p>
         <p className="text-sm mb-4" style={{ color: "var(--ink-2)" }}>
-          Your loan term has ended. Choose to repay your NGN debt or refinance into a new term.
+          {isEarlyRepay
+            ? "Your loan is still active. You can repay your NGN debt early to unlock your collateral."
+            : "Your loan term has ended. Choose to repay your NGN debt or refinance into a new term."}
         </p>
 
         {/* Loan summary */}
@@ -78,9 +89,11 @@ export function GraceActions({ loanIndex, onDone: _onDone }: { loanIndex: number
           </div>
         </div>
 
-        {/* Option 1: Repay */}
+        {/* Repay option */}
         <div className="rounded-2xl p-4 mb-3" style={{ background: "rgba(26,128,71,0.06)", border: "1px solid rgba(26,128,71,0.2)" }}>
-          <p className="text-sm font-semibold mb-1" style={{ color: "var(--success)" }}>Option 1 — Repay NGN principal</p>
+          <p className="text-sm font-semibold mb-1" style={{ color: "var(--success)" }}>
+            {isEarlyRepay ? "Repay NGN principal early" : "Option 1 — Repay NGN principal"}
+          </p>
           <p className="text-xs mb-3" style={{ color: "var(--ink-2)" }}>
             Pay ₦{formatNgn(loan.ngnDebt)} via Paystack. Your {formatUsdc(loan.collateralUsdc)} USDC collateral will be released automatically.
           </p>
@@ -96,8 +109,8 @@ export function GraceActions({ loanIndex, onDone: _onDone }: { loanIndex: number
           </button>
         </div>
 
-        {/* Option 2: Refinance */}
-        {refinanceEligible ? (
+        {/* Option 2: Refinance — grace period only */}
+        {!isEarlyRepay && refinanceEligible ? (
           <div className="rounded-2xl p-4" style={{ background: "rgba(18,45,69,0.04)", border: "1px solid var(--border)" }}>
             <p className="text-sm font-semibold mb-1" style={{ color: "var(--ink)" }}>Option 2 — Refinance (extend loan)</p>
             <p className="text-xs mb-3" style={{ color: "var(--ink-2)" }}>
@@ -141,7 +154,7 @@ export function GraceActions({ loanIndex, onDone: _onDone }: { loanIndex: number
               </a>
             )}
           </div>
-        ) : (
+        ) : (!isEarlyRepay && (
           <div className="rounded-2xl p-4 flex items-start gap-2" style={{ background: "rgba(186,43,76,0.06)", border: "1px solid rgba(186,43,76,0.2)" }}>
             <AlertTriangle className="size-4 mt-0.5 shrink-0" style={{ color: "var(--danger)" }} />
             <div>
@@ -151,7 +164,7 @@ export function GraceActions({ loanIndex, onDone: _onDone }: { loanIndex: number
               </p>
             </div>
           </div>
-        )}
+        ))}
       </div>
     </div>
   );

@@ -2,11 +2,8 @@
  * Onchain helpers — viem wallet client for NairaLock owner actions.
  * Uses the owner private key stored in OWNER_PRIVATE_KEY env var.
  * Never log or expose the private key value.
- *
- * RPC: uses RPC_PROXY_BASE_URL when Arc_Testnet is in RPC_PROXY_CHAINS,
- * otherwise falls back to the public Arc Testnet RPC.
  */
-import { createWalletClient, createPublicClient, http, parseAbi } from "viem";
+import { createWalletClient, createPublicClient, http, parseAbi, decodeEventLog } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
@@ -34,12 +31,20 @@ function getArcRpcUrl(): string {
   return "https://rpc.testnet.arc.io"; // arc-studio-allow-onchain-literal
 }
 
+// v2 ABI — 4-output getLoanPosition (added currentInterestDueUsdc), new fields in Loan struct,
+// cancelLoan, claim, pause/unpause, getLoanNgnDebt helper
 const NAIRA_LOCK_ABI = parseAbi([
   "function markRepaid(address borrower, uint256 loanIndex) external",
   "function refinanceLoan(address borrower, uint256 loanIndex, uint8 newTermChoice) external",
   "function liquidate(address borrower, uint256 loanIndex) external",
+  "function cancelLoan(address borrower, uint256 loanIndex, bool refundFees) external",
+  "function claim(address to) external",
+  "function pause() external",
+  "function unpause() external",
   "function getLoanCount(address borrower) external view returns (uint256)",
-  "function getLoanPosition(address borrower, uint256 loanIndex) external view returns ((uint256 collateralUsdc, uint256 ngnDebt, uint256 termExpiry, uint256 graceDeadline, bool active, bool repaid, bool liquidated) loan, uint8 loanState, bool refinanceEligible)",
+  // v2: 4 return values + updated Loan struct (openedAt, totalFeesPaid, cancelled)
+  "function getLoanPosition(address borrower, uint256 loanIndex) external view returns ((uint256 collateralUsdc, uint256 ngnDebt, uint256 termExpiry, uint256 graceDeadline, uint256 openedAt, uint256 totalFeesPaid, bool active, bool repaid, bool liquidated, bool cancelled) loan, uint8 loanState, bool refinanceEligible, uint256 currentInterestDueUsdc)",
+  "function claimable(address account) external view returns (uint256)",
   "event LoanOpened(address indexed borrower, uint256 loanIndex, uint256 collateralUsdc, uint256 ngnDebt, uint256 interestPaidUsdc, uint256 processingFeePaid, uint256 termExpiry)",
 ]);
 
@@ -62,6 +67,10 @@ function buildClients() {
   const walletClient = createWalletClient({ account, chain: arcTestnet, transport });
   const publicClient = createPublicClient({ chain: arcTestnet, transport });
   return { walletClient, publicClient, account };
+}
+
+function buildPublicClient() {
+  return createPublicClient({ chain: arcTestnet, transport: http(getArcRpcUrl()) });
 }
 
 export async function callMarkRepaid(borrower: string, loanIndex: number): Promise<string> {
@@ -103,8 +112,21 @@ export async function callLiquidate(borrower: string, loanIndex: number): Promis
   return hash;
 }
 
+export async function callCancelLoan(borrower: string, loanIndex: number, refundFees: boolean): Promise<string> {
+  const { walletClient, publicClient, account } = buildClients();
+  const hash = await walletClient.writeContract({
+    address: getContractAddress(),
+    abi: NAIRA_LOCK_ABI,
+    functionName: "cancelLoan",
+    args: [borrower as `0x${string}`, BigInt(loanIndex), refundFees],
+    account,
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
+}
+
 export async function getLoanCount(borrower: string): Promise<number> {
-  const { publicClient } = buildClients();
+  const publicClient = buildPublicClient();
   const count = await publicClient.readContract({
     address: getContractAddress(),
     abi: NAIRA_LOCK_ABI,
@@ -115,7 +137,7 @@ export async function getLoanCount(borrower: string): Promise<number> {
 }
 
 export async function getLoanPosition(borrower: string, loanIndex: number) {
-  const { publicClient } = buildClients();
+  const publicClient = buildPublicClient();
   return publicClient.readContract({
     address: getContractAddress(),
     abi: NAIRA_LOCK_ABI,
@@ -124,22 +146,34 @@ export async function getLoanPosition(borrower: string, loanIndex: number) {
   });
 }
 
+/** Read the NGN debt for a specific loan — used in webhook amount verification. */
+export async function getLoanNgnDebt(borrower: string, loanIndex: number): Promise<bigint> {
+  const result = await getLoanPosition(borrower, loanIndex);
+  // result is [loan, loanState, refinanceEligible, currentInterestDueUsdc]
+  const loan = (result as [{ ngnDebt: bigint }, number, boolean, bigint])[0];
+  return loan.ngnDebt;
+}
+
+/**
+ * Verify a LoanOpened event in a tx receipt.
+ * Checks log.address (not receipt.to) to support smart wallet callers.
+ * Returns { verified, loanIndex } — loanIndex is from the event, not guessed.
+ */
 export async function verifyLoanOpened(
   txHash: string,
   borrowerAddress: string,
   expectedNgnDebt: bigint
 ): Promise<{ verified: boolean; loanIndex: number }> {
   try {
-    const transport = http(getArcRpcUrl());
-    const publicClient = createPublicClient({ chain: arcTestnet, transport });
+    const publicClient = buildPublicClient();
     const contractAddress = getContractAddress();
 
     const receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
     if (!receipt || receipt.status !== "success") return { verified: false, loanIndex: 0 };
-    if (receipt.to?.toLowerCase() !== contractAddress.toLowerCase()) return { verified: false, loanIndex: 0 };
 
-    const { decodeEventLog } = await import("viem");
     for (const log of receipt.logs) {
+      // Fix: check log.address not receipt.to — supports smart wallet callers
+      if (log.address.toLowerCase() !== contractAddress.toLowerCase()) continue;
       try {
         const decoded = decodeEventLog({ abi: NAIRA_LOCK_ABI, data: log.data, topics: log.topics });
         if (decoded.eventName === "LoanOpened") {
@@ -156,5 +190,31 @@ export async function verifyLoanOpened(
     return { verified: false, loanIndex: 0 };
   } catch {
     return { verified: false, loanIndex: 0 };
+  }
+}
+
+/**
+ * Rebuild borrower list by scanning LoanOpened events from block 0.
+ * Used at server startup to repopulate the DB after a redeploy.
+ */
+export async function scanAllBorrowers(): Promise<string[]> {
+  try {
+    const publicClient = buildPublicClient();
+    const contractAddress = getContractAddress();
+    const logs = await publicClient.getLogs({
+      address: contractAddress,
+      event: parseAbi(["event LoanOpened(address indexed borrower, uint256 loanIndex, uint256 collateralUsdc, uint256 ngnDebt, uint256 interestPaidUsdc, uint256 processingFeePaid, uint256 termExpiry)"])[0],
+      fromBlock: 0n,
+      toBlock: "latest",
+    });
+    const seen = new Set<string>();
+    for (const log of logs) {
+      const args = log.args as { borrower?: string };
+      if (args.borrower) seen.add(args.borrower.toLowerCase());
+    }
+    return Array.from(seen);
+  } catch (err) {
+    console.error("[scanAllBorrowers] failed:", err);
+    return [];
   }
 }

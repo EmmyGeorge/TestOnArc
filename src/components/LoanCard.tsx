@@ -20,13 +20,14 @@ const glass = {
 
 const STATE_COLORS: Record<LoanState, string> = {
   0: "var(--subtle)", 1: "var(--success)", 2: "#e08a00",
-  3: "var(--danger)", 4: "var(--success)", 5: "var(--danger)",
+  3: "var(--danger)", 4: "var(--success)", 5: "var(--danger)", 6: "var(--subtle)",
 };
 
 const STATE_ICONS: Record<LoanState, React.ReactNode> = {
   0: <Shield className="size-3.5" />, 1: <CheckCircle className="size-3.5" />,
   2: <Clock className="size-3.5" />, 3: <AlertTriangle className="size-3.5" />,
   4: <CheckCircle className="size-3.5" />, 5: <XCircle className="size-3.5" />,
+  6: <XCircle className="size-3.5" />,
 };
 
 interface LoanCardProps {
@@ -52,9 +53,10 @@ export function LoanCard({ borrowerAddress, loanIndex, onGraceAction, onTopUp }:
   const healthPct = collateralNgn && loan.ngnDebt > 0n
     ? Math.min(200, Math.floor(Number((collateralNgn * 100n) / loan.ngnDebt))) : null;
 
+  const isActive = loanState === 1;
   const isGrace = loanState === 2;
   const isLiquidatable = loanState === 3;
-  const isDone = loanState === 4 || loanState === 5;
+  const isDone = loanState === 4 || loanState === 5 || loanState === 6;
 
   return (
     <div className="p-4 space-y-3" style={glass.card}>
@@ -123,6 +125,19 @@ export function LoanCard({ borrowerAddress, loanIndex, onGraceAction, onTopUp }:
         </div>
       )}
 
+      {/* Active loan — early repayment available */}
+      {isActive && onGraceAction && (
+        <div>
+          <button
+            onClick={() => onGraceAction(loanIndex)}
+            className="w-full rounded-xl py-2 text-sm font-semibold"
+            style={{ background: "var(--success)", color: "#fff" }}
+          >
+            Repay Early →
+          </button>
+        </div>
+      )}
+
       {/* In-grace action */}
       {isGrace && (
         <div>
@@ -163,6 +178,12 @@ export function LoanCard({ borrowerAddress, loanIndex, onGraceAction, onTopUp }:
         <div className="flex items-center gap-1.5">
           <XCircle className="size-3.5" style={{ color: "var(--danger)" }} />
           <p className="text-xs font-semibold" style={{ color: "var(--danger)" }}>Liquidated — surplus USDC returned</p>
+        </div>
+      )}
+      {loanState === 6 && (
+        <div className="flex items-center gap-1.5">
+          <XCircle className="size-3.5" style={{ color: "var(--subtle)" }} />
+          <p className="text-xs font-semibold" style={{ color: "var(--subtle)" }}>Cancelled by operator — collateral returned</p>
         </div>
       )}
     </div>

@@ -18,7 +18,7 @@ export const NAIRA_LOCK_ABI = NairaLockArtifact.abi as any[];
 export const TERM_LABELS = ["3 months", "6 months", "1 year"] as const;
 export type TermChoice = 0 | 1 | 2;
 
-export type LoanState = 0 | 1 | 2 | 3 | 4 | 5;
+export type LoanState = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 export const LOAN_STATE_LABELS: Record<LoanState, string> = {
   0: "No Loan",
   1: "Active",
@@ -26,6 +26,7 @@ export const LOAN_STATE_LABELS: Record<LoanState, string> = {
   3: "Liquidatable",
   4: "Repaid",
   5: "Liquidated",
+  6: "Cancelled",
 };
 
 export interface LoanPosition {
@@ -33,9 +34,12 @@ export interface LoanPosition {
   ngnDebt: bigint;
   termExpiry: bigint;
   graceDeadline: bigint;
+  openedAt: bigint;
+  totalFeesPaid: bigint;
   active: boolean;
   repaid: boolean;
   liquidated: boolean;
+  cancelled: boolean;
 }
 
 export interface LoanData {

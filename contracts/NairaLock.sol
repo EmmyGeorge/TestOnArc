@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract NairaLock is Ownable, ReentrancyGuard {
+contract NairaLock is Ownable2Step, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
     struct Loan {
@@ -14,9 +15,12 @@ contract NairaLock is Ownable, ReentrancyGuard {
         uint256 ngnDebt;
         uint256 termExpiry;
         uint256 graceDeadline;
+        uint256 openedAt;
+        uint256 totalFeesPaid;
         bool active;
         bool repaid;
         bool liquidated;
+        bool cancelled;
     }
 
     error NoActiveLoan();
@@ -29,24 +33,32 @@ contract NairaLock is Ownable, ReentrancyGuard {
     error ZeroAmount();
     error ZeroAddress();
     error RateDeviationTooLarge(uint256 current, uint256 proposed);
+    error LtvViolated(uint256 requested, uint256 maxAllowed);
+    error CancelWindowExpired();
+    error NothingToClaim();
+    error FeeTooHigh(uint256 proposed, uint256 max);
+    error InterestTooHigh(uint256 proposed, uint256 max);
+    error RateCooldownActive(uint256 nextAllowed);
 
     IERC20 public immutable usdc;
     address public treasury;
     uint256 public ngnPerUsd;
-
-    /// @notice Flat processing fee charged at loan open, in USDC (6 decimals). Default 0.5 USDC = 500_000.
     uint256 public processingFeeUsdc = 500_000;
-
-    /// @notice Per-term interest rates in basis points. Index matches termChoice (0=3mo, 1=6mo, 2=1yr).
     uint256[3] public termInterestRateBps;
-
-    /// @notice Max LTV in basis points (6000 = 60%).
-    uint256 public constant LTV_BPS = 6000;
-    uint256 public constant GRACE_PERIOD = 14 days;
-
-    uint256[3] public TERM_DURATIONS;
+    uint256 public lastRateUpdate;
 
     mapping(address => Loan[]) public loans;
+    mapping(address => uint256) public claimable;
+
+    uint256 public constant LTV_BPS = 6000;
+    uint256 public constant GRACE_PERIOD = 14 days;
+    uint256 public constant CANCEL_WINDOW = 7 days;
+    uint256 public constant MAX_RATE_DEVIATION_BPS = 1000;
+    uint256 public constant RATE_COOLDOWN = 1 hours;
+    uint256 public constant MAX_FEE_USDC = 10_000_000;
+    uint256 public constant MAX_INTEREST_BPS = 5000;
+
+    uint256[3] public TERM_DURATIONS;
 
     event LoanOpened(
         address indexed borrower,
@@ -57,16 +69,18 @@ contract NairaLock is Ownable, ReentrancyGuard {
         uint256 processingFeePaid,
         uint256 termExpiry
     );
-    event ProcessingFeeUpdated(uint256 newFee);
     event LoanRefinanced(
         address indexed borrower, uint256 loanIndex, uint256 interestPaidUsdc, uint256 newTermExpiry, uint8 newTermChoice
     );
     event LoanRepaid(address indexed borrower, uint256 loanIndex, uint256 collateralReturned);
     event LoanLiquidated(address indexed borrower, uint256 loanIndex, uint256 deductedUsdc, uint256 returnedUsdc);
+    event LoanCancelled(address indexed borrower, uint256 loanIndex, uint256 collateralReturned, bool feesRefunded);
     event CollateralToppedUp(address indexed borrower, uint256 loanIndex, uint256 addedUsdc);
     event NgnRateUpdated(uint256 newRate);
     event TermInterestRateUpdated(uint8 indexed termChoice, uint256 newBps);
     event TreasuryUpdated(address newTreasury);
+    event ProcessingFeeUpdated(uint256 newFee);
+    event Claimed(address indexed account, address indexed to, uint256 amount);
 
     constructor(address _usdc, address _treasury, uint256 _ngnPerUsd, address initialOwner)
         Ownable(initialOwner)
@@ -78,7 +92,6 @@ contract NairaLock is Ownable, ReentrancyGuard {
         treasury = _treasury;
         ngnPerUsd = _ngnPerUsd;
 
-        // Default per-term rates: 10% (3mo), 15% (6mo), 20% (1yr)
         termInterestRateBps[0] = 1000;
         termInterestRateBps[1] = 1500;
         termInterestRateBps[2] = 2000;
@@ -88,20 +101,25 @@ contract NairaLock is Ownable, ReentrancyGuard {
         TERM_DURATIONS[2] = 365 days;
     }
 
-    function depositAndBorrow(uint256 usdcAmount, uint256 ngnRequested, uint8 termChoice) external nonReentrant {
+    function depositAndBorrow(uint256 usdcAmount, uint256 ngnRequested, uint8 termChoice)
+        external
+        whenNotPaused
+        nonReentrant
+    {
         if (usdcAmount == 0 || ngnRequested == 0) revert ZeroAmount();
         require(termChoice < 3, "Invalid term choice");
 
-        // Max borrowable NGN is deposit value at the configured LTV
-        uint256 maxNgn = (usdcAmount * ngnPerUsd * LTV_BPS) / (10_000 * 1e6);
-        if (ngnRequested > maxNgn) revert ExceedsMaxBorrow(ngnRequested, maxNgn);
-
-        // Interest is charged on the borrowed amount (converted to USDC), using the selected term's rate
         uint256 interestUsdc = (ngnRequested * termInterestRateBps[termChoice] * 1e6) / (ngnPerUsd * 10_000);
         uint256 totalFees = interestUsdc + processingFeeUsdc;
         if (totalFees >= usdcAmount) revert InsufficientCollateralForInterest(usdcAmount, totalFees);
 
         uint256 collateralLocked = usdcAmount - totalFees;
+        uint256 maxNgn = (collateralLocked * ngnPerUsd * LTV_BPS) / (10_000 * 1e6);
+        if (ngnRequested > maxNgn) revert ExceedsMaxBorrow(ngnRequested, maxNgn);
+
+        if ((ngnRequested * 10_000 * 1e6) > (collateralLocked * ngnPerUsd * LTV_BPS)) {
+            revert LtvViolated(ngnRequested, maxNgn);
+        }
 
         usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
         usdc.safeTransfer(treasury, totalFees);
@@ -114,9 +132,12 @@ contract NairaLock is Ownable, ReentrancyGuard {
             ngnDebt: ngnRequested,
             termExpiry: termExpiry,
             graceDeadline: graceDeadline,
+            openedAt: block.timestamp,
+            totalFeesPaid: totalFees,
             active: true,
             repaid: false,
-            liquidated: false
+            liquidated: false,
+            cancelled: false
         });
 
         uint256 loanIndex = loans[msg.sender].length;
@@ -153,7 +174,7 @@ contract NairaLock is Ownable, ReentrancyGuard {
         }
 
         loan.collateralUsdc -= interestUsdc;
-        usdc.safeTransfer(treasury, interestUsdc);
+        _safePayTreasury(interestUsdc);
 
         uint256 newTermExpiry = block.timestamp + TERM_DURATIONS[newTermChoice];
         loan.termExpiry = newTermExpiry;
@@ -166,8 +187,6 @@ contract NairaLock is Ownable, ReentrancyGuard {
         require(loanIndex < loans[borrower].length, "Invalid loan index");
         Loan storage loan = loans[borrower][loanIndex];
         if (!loan.active) revert NoActiveLoan();
-
-        if (block.timestamp < loan.termExpiry) revert GracePeriodNotStarted();
         if (block.timestamp >= loan.graceDeadline) revert GracePeriodExpired();
 
         loan.repaid = true;
@@ -176,7 +195,7 @@ contract NairaLock is Ownable, ReentrancyGuard {
         uint256 collateralToReturn = loan.collateralUsdc;
         loan.collateralUsdc = 0;
 
-        usdc.safeTransfer(borrower, collateralToReturn);
+        _safePay(borrower, collateralToReturn);
 
         emit LoanRepaid(borrower, loanIndex, collateralToReturn);
     }
@@ -188,22 +207,39 @@ contract NairaLock is Ownable, ReentrancyGuard {
         if (block.timestamp < loan.graceDeadline) revert LiquidationNotReady();
 
         uint256 deductUsdc = (loan.ngnDebt * 1e6) / ngnPerUsd;
-        if (deductUsdc > loan.collateralUsdc) {
-            deductUsdc = loan.collateralUsdc;
-        }
-
+        if (deductUsdc > loan.collateralUsdc) deductUsdc = loan.collateralUsdc;
         uint256 returnUsdc = loan.collateralUsdc - deductUsdc;
 
         loan.liquidated = true;
         loan.active = false;
         loan.collateralUsdc = 0;
 
-        usdc.safeTransfer(treasury, deductUsdc);
-        if (returnUsdc > 0) {
-            usdc.safeTransfer(borrower, returnUsdc);
-        }
+        _safePayTreasury(deductUsdc);
+        _safePay(borrower, returnUsdc);
 
         emit LoanLiquidated(borrower, loanIndex, deductUsdc, returnUsdc);
+    }
+
+    function cancelLoan(address borrower, uint256 loanIndex, bool refundFees) external onlyOwner nonReentrant {
+        require(loanIndex < loans[borrower].length, "Invalid loan index");
+        Loan storage loan = loans[borrower][loanIndex];
+        if (!loan.active) revert NoActiveLoan();
+        if (block.timestamp > loan.openedAt + CANCEL_WINDOW) revert CancelWindowExpired();
+
+        loan.active = false;
+        loan.cancelled = true;
+
+        uint256 collateralToReturn = loan.collateralUsdc;
+        loan.collateralUsdc = 0;
+
+        if (refundFees && loan.totalFeesPaid > 0) {
+            usdc.safeTransferFrom(msg.sender, address(this), loan.totalFeesPaid);
+            collateralToReturn += loan.totalFeesPaid;
+        }
+
+        _safePay(borrower, collateralToReturn);
+
+        emit LoanCancelled(borrower, loanIndex, collateralToReturn, refundFees);
     }
 
     function topUpCollateral(uint256 loanIndex, uint256 additionalUsdc) external nonReentrant {
@@ -218,24 +254,39 @@ contract NairaLock is Ownable, ReentrancyGuard {
         emit CollateralToppedUp(msg.sender, loanIndex, additionalUsdc);
     }
 
-    /// @dev Max 20% deviation per update to prevent griefing via rate manipulation.
-    uint256 public constant MAX_RATE_DEVIATION_BPS = 2000; // 20%
+    function claim(address to) external nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        uint256 amount = claimable[msg.sender];
+        if (amount == 0) revert NothingToClaim();
+
+        claimable[msg.sender] = 0;
+        usdc.safeTransfer(to, amount);
+
+        emit Claimed(msg.sender, to, amount);
+    }
 
     function setNgnRate(uint256 _ngnPerUsd) external onlyOwner nonReentrant {
         if (_ngnPerUsd == 0) revert ZeroAmount();
         uint256 current = ngnPerUsd;
         if (current > 0) {
+            if (lastRateUpdate > 0 && block.timestamp < lastRateUpdate + RATE_COOLDOWN) {
+                revert RateCooldownActive(lastRateUpdate + RATE_COOLDOWN);
+            }
             uint256 maxAllowed = current + (current * MAX_RATE_DEVIATION_BPS / 10_000);
             uint256 minAllowed = current - (current * MAX_RATE_DEVIATION_BPS / 10_000);
             if (_ngnPerUsd > maxAllowed || _ngnPerUsd < minAllowed) {
                 revert RateDeviationTooLarge(current, _ngnPerUsd);
             }
         }
+
         ngnPerUsd = _ngnPerUsd;
+        lastRateUpdate = block.timestamp;
+
         emit NgnRateUpdated(_ngnPerUsd);
     }
 
     function setProcessingFee(uint256 _feeUsdc) external onlyOwner {
+        if (_feeUsdc > MAX_FEE_USDC) revert FeeTooHigh(_feeUsdc, MAX_FEE_USDC);
         processingFeeUsdc = _feeUsdc;
         emit ProcessingFeeUpdated(_feeUsdc);
     }
@@ -254,7 +305,9 @@ contract NairaLock is Ownable, ReentrancyGuard {
         require(loanIndex < loans[borrower].length, "Invalid loan index");
         loan = loans[borrower][loanIndex];
 
-        if (loan.liquidated) {
+        if (loan.cancelled) {
+            loanState = 6;
+        } else if (loan.liquidated) {
             loanState = 5;
         } else if (loan.repaid) {
             loanState = 4;
@@ -288,11 +341,15 @@ contract NairaLock is Ownable, ReentrancyGuard {
     {
         require(termChoice < 3, "Invalid term choice");
         processingFee = processingFeeUsdc;
-        // Max NGN = deposit value at configured LTV
-        maxNgn = (usdcAmount * ngnPerUsd * LTV_BPS) / (10_000 * 1e6);
-        // Interest is on the borrowed amount (maxNgn) at the selected term's rate
-        interestUsdc = (maxNgn * termInterestRateBps[termChoice] * 1e6) / (ngnPerUsd * 10_000);
-        // Collateral locked = full deposit minus interest minus processing fee
+        if (ngnPerUsd == 0 || usdcAmount <= processingFee) return (0, 0, 0, processingFee);
+
+        uint256 rateBps = termInterestRateBps[termChoice];
+        uint256 numerator = (usdcAmount - processingFee) * ngnPerUsd * LTV_BPS * 10_000;
+        uint256 denominator = (10_000 * 1e6 * 10_000) + (LTV_BPS * rateBps * 1e6);
+
+        maxNgn = numerator / denominator;
+        interestUsdc = (maxNgn * rateBps * 1e6) / (ngnPerUsd * 10_000);
+
         uint256 totalFees = interestUsdc + processingFee;
         collateralAfterInterest = usdcAmount > totalFees ? usdcAmount - totalFees : 0;
     }
@@ -318,11 +375,41 @@ contract NairaLock is Ownable, ReentrancyGuard {
         interestUsdc = (loan.ngnDebt * termInterestRateBps[newTermChoice] * 1e6) / (ngnPerUsd * 10_000);
     }
 
-    /// @notice Replace setInterestRateBps — sets the rate for one specific term.
     function setTermInterestRateBps(uint8 termChoice, uint256 _bps) external onlyOwner nonReentrant {
         require(termChoice < 3, "Invalid term choice");
-        require(_bps < 10_000, "Interest too high");
+        if (_bps > MAX_INTEREST_BPS) revert InterestTooHigh(_bps, MAX_INTEREST_BPS);
         termInterestRateBps[termChoice] = _bps;
         emit TermInterestRateUpdated(termChoice, _bps);
+    }
+
+    function renounceOwnership() public pure override {
+        revert("Renounce disabled");
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    function _safePay(address recipient, uint256 amount) internal {
+        if (amount == 0) return;
+        try IERC20(address(usdc)).transfer(recipient, amount) returns (bool ok) {
+            if (!ok) claimable[recipient] += amount;
+        } catch {
+            claimable[recipient] += amount;
+        }
+    }
+
+    function _safePayTreasury(uint256 amount) internal {
+        if (amount == 0) return;
+        address t = treasury;
+        try IERC20(address(usdc)).transfer(t, amount) returns (bool ok) {
+            if (!ok) claimable[t] += amount;
+        } catch {
+            claimable[t] += amount;
+        }
     }
 }

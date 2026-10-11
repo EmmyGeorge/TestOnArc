@@ -1,1 +1,14 @@
-Good call — simplest solution. I'll replace ConnectKit with **RainbowKit** which has built-in support for all EVM wallets (MetaMask, Trust Wallet, Coinbase, WalletConnect, injected) on both desktop and mobile, and handles the WalletConnect project ID internally with a free built-in key. I'll switch from ConnectKit to **RainbowKit** — it works on all EVM wallets, mobile and desktop, with no project ID needed for basic use. Installing now:This session is in Plan mode — I can't run commands or edit files here. Switch to **Build mode** using the mode selector, then say "continue" and I'll swap ConnectKit for RainbowKit immediately. The change affects 3 files only (`config.ts`, `main.tsx`, `App.tsx`) and takes about 2 minutes.
+You need to update it in two places:
+
+**1. Railway (production)**
+
+1. Go to [railway.app](https://railway.app) → your project → the service → **Variables** tab
+2. Find `VITE_NAIRA_LOCK_ADDRESS`
+3. Change the value to `0x440499033437d1578289dd57ee3cb1469829a4cb`
+4. Railway will automatically redeploy
+
+**2. Local `.env` (already done)**
+
+I already updated it in your `.env` file during the build. Your local dev server is already pointing at v7.
+
+That's it. Once Railway redeploys, the live app at `https://testonarc-production.up.railway.app` will use the new contract.
